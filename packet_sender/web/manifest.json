@@ -1,6 +1,6 @@
 {
-    "name": "packet_sender",
-    "short_name": "packet_sender",
+    "name": "PacketFlow",
+    "short_name": "PacketFlow",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

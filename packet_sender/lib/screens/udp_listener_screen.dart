@@ -130,19 +130,9 @@ class _UdpListenerScreenState
                         final packet =
                             _packets[index];
 
-                        final hex = packet.data
-                            .map(
-                              (byte) => byte
-                                  .toRadixString(16)
-                                  .padLeft(2, '0'),
-                            )
-                            .join(' ')
-                            .toUpperCase();
-
+                        final hex = HexConverter.bytesToHex(packet.data);
                         final ascii =
-                            String.fromCharCodes(
-                          packet.data,
-                        );
+                            HexConverter.bytesToCleanAscii(packet.data);
 
                         return Card(
                           child: Padding(

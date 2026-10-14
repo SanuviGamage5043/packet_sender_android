@@ -1,0 +1,196 @@
+2. Tailored Improvements for ESP32 & LED Panel Testing
+
+To prepare PacketFlow for hardware testing with ESP32 microcontrollers and LED panels (WS2812B / NeoPixel strips, HUB75 matrix panels, MAX7219 grids, FastLED, or WLED firmware), here is the prioritized list of improvements:
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                             PacketFlow Studio                               │
+├───────────────────────────────┬─────────────────────────────────────────────┤
+│ 1. ESP32 Network Layer        │ 2. LED Panel & Matrix Studio                │
+│  • UDP Broadcast (255.255...) │  • Interactive RGB Color Picker & Sliders   │
+│  • ESP32 Auto-Discovery (mDNS)│  • Pixel Canvas (8x8, 16x16, 32x32, 64x32)  │
+│  • Persistent TCP & WebSocket │  • Text Marquee / Scrolling Generator       │
+│  • Hex Dump & Raw Byte Viewer │  • WLED (DRGB/DNRGB) & Art-Net DMX Presets  │
+├───────────────────────────────┼─────────────────────────────────────────────┤
+│ 3. Automation & Streamer      │ 4. Checksum & Framing Engine                │
+│  • Periodic Stream (30-60 FPS)│  • Packet Framing (Header, Len, Cmd, Tail)  │
+│  • Sequence / Macro Runner    │  • Auto-CRC8, CRC16, XOR & Checksum Sum     │
+└───────────────────────────────┴─────────────────────────────────────────────┘
+Detailed Breakdown:
+
+A. ESP32 Communication & Discovery
+UDP Broadcast Support (broadcastEnabled = true):
+ESP32 devices on local networks are rarely static. Enabling UDP broadcast allows sending 255.255.255.255 discovery pings without knowing the ESP32's assigned DHCP IP upfront.
+ESP32 Subnet Device Scanner:
+A "Scan for ESP32" tool that sweeps the local network or listens for mDNS (esp32.local, wled.local) to auto-populate the Host field with discovered device IPs.
+Persistent TCP & WebSocket Mode:
+Currently, TCP sockets close immediately after sending. Controlling LED effects and sliders requires keeping a socket or WebSocket (ws://esp32/ws) continuously open to avoid repeated 3-way handshakes.
+Dual Response Inspector (ASCII + Hex Dump):
+Microcontrollers frequently send back binary status flags, frame ACKs (e.g. 0x06), or binary telemetry. The response viewer should display both ASCII and a formatted Hex Dump (Hex bytes + printable ASCII) without byte corruption.
+
+
+B. LED Panel & Matrix Tools (High Priority)
+Interactive Color Picker & RGB Streamer:
+A color wheel and brightness slider that immediately constructs and sends payloads in popular ESP32 formats:
+Raw 3-byte RGB: [0xFF, 0x80, 0x00]
+Hex string: #FF8000 or FF8000
+JSON command: {"r":255, "g":128, "b":0, "bri":200}
+Custom delimiter: SET 255,128,0\n
+Interactive Matrix Canvas (8x8 / 16x16 / 32x32 / 64x32):
+A visual grid where you tap/draw pixels.
+Sends real-time coordinate packets (x, y, r, g, b) or full-frame bitmap buffer to drive WS2812 matrices or HUB75 panels.
+Supports both Row-Major and Serpentine (Zig-Zag) LED strip wiring layouts.
+Scrolling Text Marquee Generator:
+Type a text string (e.g., "HELLO ESP32"), pick text color, background color, and scroll speed — PacketFlow formats it into the appropriate command packet for your panel firmware.
+WLED & Art-Net DMX Presets:
+Native presets for WLED real-time streaming (WARLS / DRGB on UDP port 21324) and Art-Net (UDP port 6454).
+
+
+
+C. Automation & Testing Tools
+Continuous Packet Streamer (FPS / Keep-Alive):
+Stream packets at specified intervals (e.g., every 33ms for ~30 FPS animation testing, 100ms, or 1000ms for keep-alive pings) with an active FPS counter and packet statistics.
+Macro & Sequence Runner:
+Chain multiple commands with customizable delays (e.g., Step 1: Init ESP32 -> wait 200ms -> Step 2: Set Brightness -> wait 100ms -> Step 3: Trigger Animation).
+Packet Framing & Checksum Helper:
+Microcontroller protocols often require framing bytes and checksums: [Header 0xAA] [Length] [Command ID] [Payload] [CRC/Checksum] [Footer 0x55].
+Automatically calculates CRC8, CRC16, or XOR checksums so you don't have to manually calculate them.
+Recommended Next Step
+
+Which of these would you like to build first?
+
+
+
+What Was Built & Updated
+1. UDP Broadcast Support (broadcastEnabled = true)
+Socket Configuration: Updated UdpService to explicitly configure _socket.broadcastEnabled = true on all sockets.
+Direct Broadcast IP Handling: Replaced standard DNS lookup with safe IP parsing to guarantee that 255.255.255.255 and subnet broadcast addresses (e.g., 192.168.1.255) transmit reliably on Android/iOS without throwing socket permission errors.
+UI Toggle: Added a UDP Broadcast Mode toggle switch right below the protocol selector. When enabled, it targets 255.255.255.255 for ESP32 discovery pings.
+Multi-Response Listener: Added sendBroadcastDiscovery() to capture multiple replies across all responding microcontrollers on the local network.
+2. ESP32 Subnet Device Scanner
+Discovery Service (NetworkScannerService):
+Automatically detects the smartphone's Wi-Fi IPv4 address and subnet (e.g., 192.168.1.0/24).
+mDNS & Hostname Probing: Resolves esp32.local, wled.local, espressif.local, nodemcu.local, and packetflow.local.
+UDP Broadcast Probing: Sends probe pulses to discovery ports (5000, 8266, 21324 [WLED], 8080).
+Fast Subnet Sweep: Concurrently tests active IPs on common microcontroller ports with low-latency timeouts.
+Scanner UI Dialog (Esp32ScannerDialog):
+Accessible via the radar icon button (Icons.radar) in the AppBar, Drawer, or directly inside the Host/IP input field.
+Shows real-time scan progress, discovered device cards with IP, open port, latency in ms, and service type.
+Tapping SELECT auto-populates the Host and Port fields on the main screen.
+3. Persistent TCP & WebSocket Mode
+Persistent TCP Client (TcpService):
+Supports persistent connection mode (connect(), sendPersistent(), disconnect()).
+Eliminates the 3-way TCP handshake penalty for every packet, preventing ESP32 lwIP socket exhaustion.
+Automatically pipes incoming live streams directly into the inspector.
+WebSocket Client (WebSocketService):
+Native WebSocket client (ws:// and wss://) for ESP32 web servers (ESPAsyncWebServer and WebSocketsServer).
+Supports sending and receiving both text and raw binary byte frames.
+Live Session Controller:
+Added a dedicated connection bar on the main screen with a live status indicator (glowing green when active), endpoint info, and CONNECT / DISCONNECT controls.
+4. Dual Response Inspector (ASCII + Hex Dump)
+Safe Binary Decoding (HexConverter):
+Added bytesToCleanAscii(): Prevents non-printable binary bytes (flags, null bytes 0x00, ACKs 0x06) from corrupting or crashing the UI by rendering them safely as ·.
+Added bytesToHexDump(): Formats binary buffers into a canonical Wireshark-style 16-byte hex dump with offset, hex pairs, and an ASCII column.
+Inspector Widget (ResponseInspector):
+Mode pill buttons: Switch instantly between ASCII and HEX DUMP.
+Live status bar: Displays byte count (e.g. 16 B), round-trip latency (ms), and timestamps.
+Actions menu: Copy Current View, Copy Raw HEX, and Clear Output.
+5. Dark Navy Blue UI Theme
+Theme Configuration (lib/main.dart):
+Deep Midnight Navy canvas (#0B132B) and Slate Navy background (#0F172A).
+High-contrast card surfaces (#1E293B) with subtle borders (#334155).
+Electric Cyan accents (#38BDF8 / #00F2FE) for active states, indicators, and primary actions.
+Vibrant Indigo accents (#6366F1 / #818CF8) for secondary elements.
+Matching dark theme applied across Dialogs, Drawer, and Inputs.
+Verification & Testing
+
+Ran all automated smoke and unit tests:
+
+powershell
+flutter test
+# Output:
+# 00:00 +0: HexConverter & HexDump Tests bytesToCleanAscii
+# 00:00 +1: HexConverter & HexDump Tests bytesToHex
+# 00:00 +2: HexConverter & HexDump Tests bytesToHexDump
+# 00:00 +3: NetworkScannerService gets local network information
+# 00:00 +4: TcpService lifecycle and disconnection safety
+# 00:00 +5: WebSocketService lifecycle and disconnection safety
+# 00:00 +6: Counter increments smoke test
+# 00:01 +7: All tests passed!
+
+
+---------------------------------------------------
+
+Automation & Testing Tools Implemented
+
+All three components of Automation & Testing Tools have been built, integrated into the Navy Blue dark UI, and verified with all unit tests passing.
+
+1. Continuous Packet Streamer (FPS / Keep-Alive)
+High-Frequency Transmission Engine (PacketStreamerService):
+Streams packets periodically down any active protocol (UDP, TCP Single, TCP Persistent, or WebSocket).
+Rate Presets:
+33ms (~30 FPS) – specifically calibrated for testing live LED matrix frame streams.
+50ms (20 FPS)
+100ms (10 FPS)
+1000ms (1s) – for keep-alive pings and watchdog timers.
+Realtime Metrics Dashboard on HomeScreen:
+Live FPS Counter: Dynamically calculated using a sliding window.
+Packets Sent Counter (green).
+Dropped / Failed Counter (red when packets fail).
+Elapsed Timer.
+Large, high-visibility START STREAM / STOP STREAM button with live badge indicators.
+2. Macro & Sequence Runner
+Chained Command Engine (MacroService):
+Execute a series of packets sequentially with custom millisecond delays between each step.
+Supports customizable loop counts: Run 1x, Run 
+𝑁
+N times, or Loop Infinitely until stopped.
+Stored in SharedPreferences with default ESP32 demo sequences (e.g. 1. Ping -> 300ms -> 2. Set Brightness (AA 02 80 55) -> 200ms -> 3. Start Rainbow Cycle).
+Dedicated Runner Screen (MacroScreen):
+Accessible from the AppBar icon, Drawer, or directly next to the Save button on HomeScreen.
+Real-time step highlighting: Highlights the active step as it transmits with progress indicator.
+Add, edit, reorder, and delete steps with custom labels and format (ASCII / HEX).
+3. Packet Framing & Checksum Helper
+Frame Compiler & Checksum Engine (ChecksumHelper):
+Assembles framed microcontroller packets: 
+[Header]
+[Length]
+[Command ID]
+[Payload]
+[Checksum]
+[Footer]
+[Header][Length][Command ID][Payload][Checksum][Footer]
+Supported Checksum Algorithms:
+XOR Checksum: Classic bitwise XOR across all frame bytes.
+8-bit Sum (Modulo 256).
+CRC-8 Standard (Polynomial 0x07, Init 0x00).
+CRC-8 Maxim / Dallas (Polynomial 0x31 / 0x8C, used by Dallas 1-Wire & Arduino sensors).
+CRC-16 Modbus (Polynomial 0xA001, standard for Modbus RTU / RS485 on ESP32).
+CRC-16 CCITT (Polynomial 0x1021, Init 0xFFFF).
+Configurable length formats: 1-byte, 2-bytes Big Endian, 2-bytes Little Endian, or None.
+Visual Framing Dialog (FramingBuilderDialog):
+Accessible via the Framing Helper pill button in the Packet Data bar.
+Live frame preview updating on every keystroke.
+One-tap USE IN SENDER button automatically inserts the compiled frame into the main transmission field with format set to HEX.
+Test Suite Results
+
+All 14 automated unit and smoke tests passed:
+
+powershell
+flutter test
+# 00:00 +0: HexConverter & HexDump Tests bytesToCleanAscii
+# 00:00 +1: HexConverter & HexDump Tests bytesToHex
+# 00:00 +2: HexConverter & HexDump Tests bytesToHexDump
+# 00:00 +3: Checksum & Framing Helper Tests XOR checksum calculates correctly
+# 00:00 +4: Checksum & Framing Helper Tests Sum8 (Modulo 256) calculates correctly
+# 00:00 +5: Checksum & Framing Helper Tests CRC-8 Standard and Maxim calculate correctly
+# 00:00 +6: Checksum & Framing Helper Tests CRC-16 Modbus and CCITT calculate non-zero outputs
+# 00:00 +7: Checksum & Framing Helper Tests buildFrame packages Header, Length, Cmd, Payload, Checksum, and Footer
+# 00:00 +8: Continuous Streamer Tests PacketStreamerService starts and computes statistics
+# 00:00 +9: MacroService runs steps sequentially with delays
+# 00:00 +10: NetworkScannerService gets local network information
+# 00:00 +11: TcpService lifecycle and disconnection safety
+# 00:00 +12: WebSocketService lifecycle and disconnection safety
+# 00:00 +13: Counter increments smoke test
+# 00:01 +14: All tests passed!
+11:27 AM
+
