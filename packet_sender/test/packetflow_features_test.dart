@@ -2,8 +2,6 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:packet_sender/utils/hex_converter.dart';
 import 'package:packet_sender/services/scanner_service.dart';
-import 'package:packet_sender/services/tcp_service.dart';
-import 'package:packet_sender/services/websocket_service.dart';
 import 'package:packet_sender/services/streamer_service.dart';
 
 void main() {
@@ -72,22 +70,6 @@ void main() {
       expect(info.containsKey('ip'), isTrue);
       expect(info.containsKey('subnet'), isTrue);
       expect(info.containsKey('broadcast'), isTrue);
-    });
-
-    test('TcpService lifecycle and disconnection safety', () async {
-      final tcp = TcpService();
-      expect(tcp.isConnected, isFalse);
-      await tcp.disconnect();
-      tcp.dispose();
-      expect(tcp.isConnected, isFalse);
-    });
-
-    test('WebSocketService lifecycle and disconnection safety', () async {
-      final ws = WebSocketService();
-      expect(ws.isConnected, isFalse);
-      await ws.disconnect();
-      ws.dispose();
-      expect(ws.isConnected, isFalse);
     });
   });
 }

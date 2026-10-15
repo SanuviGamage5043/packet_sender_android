@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import '../models/packet.dart';
 import '../services/udp_service.dart';
 import '../services/tcp_service.dart';
-import '../services/websocket_service.dart';
 import '../services/history_service.dart';
 import '../services/saved_packet_service.dart';
 import '../services/scanner_service.dart';
@@ -47,7 +46,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   final UdpService _udpService = UdpService();
   final TcpService _tcpService = TcpService();
-  final WebSocketService _wsService = WebSocketService();
   final HistoryService _historyService = HistoryService();
   final SavedPacketService _savedPacketService = SavedPacketService();
   final PacketStreamerService _streamerService = PacketStreamerService();
@@ -61,7 +59,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   bool _isBroadcast = false;
   bool _isSending = false;
-  bool _isConnecting = false;
 
   // Continuous Streamer State
   bool _showStreamerSection = false;
@@ -76,56 +73,14 @@ class _HomeScreenState extends State<HomeScreen> {
   DateTime? _responseTimestamp;
 
   // Stream Subscriptions
-  StreamSubscription? _tcpDataSub;
-  StreamSubscription? _tcpStateSub;
-  StreamSubscription? _wsMessageSub;
-  StreamSubscription? _wsStateSub;
   StreamSubscription? _streamerSub;
 
   @override
   void initState() {
     super.initState();
-    _listenToPersistentStreams();
-
     _streamerSub = _streamerService.statsStream.listen((stats) {
       if (!mounted) return;
       setState(() => _streamerStats = stats);
-    });
-  }
-
-  void _listenToPersistentStreams() {
-    // TCP persistent stream
-    _tcpDataSub = _tcpService.dataStream.listen((chunk) {
-      if (!mounted) return;
-      setState(() {
-        _rawResponseBytes.addAll(chunk);
-        _response = HexConverter.bytesToCleanAscii(_rawResponseBytes);
-        _responseTimestamp = DateTime.now();
-      });
-    });
-
-    _tcpStateSub = _tcpService.connectionStateStream.listen((connected) {
-      if (!mounted) return;
-      setState(() {
-        _isConnecting = false;
-      });
-    });
-
-    // WebSocket stream
-    _wsMessageSub = _wsService.messageStream.listen((msg) {
-      if (!mounted) return;
-      setState(() {
-        _rawResponseBytes.addAll(msg.rawBytes);
-        _response = HexConverter.bytesToCleanAscii(_rawResponseBytes);
-        _responseTimestamp = DateTime.now();
-      });
-    });
-
-    _wsStateSub = _wsService.connectionStateStream.listen((connected) {
-      if (!mounted) return;
-      setState(() {
-        _isConnecting = false;
-      });
     });
   }
 
@@ -134,77 +89,10 @@ class _HomeScreenState extends State<HomeScreen> {
     _streamerSub?.cancel();
     _streamerService.dispose();
 
-    _tcpDataSub?.cancel();
-    _tcpStateSub?.cancel();
-    _wsMessageSub?.cancel();
-    _wsStateSub?.cancel();
-
-    _tcpService.dispose();
-    _wsService.dispose();
-
     _hostController.dispose();
     _portController.dispose();
     _dataController.dispose();
     super.dispose();
-  }
-
-  bool get _isPersistentProtocol =>
-      _protocol == 'TCP (Persistent)' || _protocol == 'WebSocket';
-
-  bool get _isCurrentlyConnected =>
-      (_protocol == 'TCP (Persistent)' && _tcpService.isConnected) ||
-      (_protocol == 'WebSocket' && _wsService.isConnected);
-
-  bool get _isTcpReconnecting =>
-      _protocol == 'TCP (Persistent)' &&
-      _tcpService.isReconnecting &&
-      !_isConnecting;
-
-  // ------------------------------------------------------------
-  // Toggle Connection for Persistent Protocols
-  // ------------------------------------------------------------
-
-  Future<void> _togglePersistentConnection() async {
-    final host = _hostController.text.trim();
-    final port = int.tryParse(_portController.text.trim());
-
-    if (_isCurrentlyConnected) {
-      setState(() => _isConnecting = true);
-      if (_protocol == 'TCP (Persistent)') {
-        await _tcpService.disconnect();
-      } else {
-        await _wsService.disconnect();
-      }
-      setState(() => _isConnecting = false);
-      return;
-    }
-
-    if (host.isEmpty) {
-      _showError('Please enter a host or IP address.');
-      return;
-    }
-
-    if (port == null || port < 1 || port > 65535) {
-      _showError('Please enter a valid port number.');
-      return;
-    }
-
-    setState(() => _isConnecting = true);
-
-    try {
-      if (_protocol == 'TCP (Persistent)') {
-        await _tcpService.connect(host: host, port: port);
-        _showSuccess('Connected to TCP $host:$port');
-      } else {
-        final url = 'ws://$host:$port';
-        await _wsService.connect(url);
-        _showSuccess('Connected to WebSocket $url');
-      }
-    } catch (e) {
-      _showError('Connection failed: $e');
-    } finally {
-      if (mounted) setState(() => _isConnecting = false);
-    }
   }
 
   // ------------------------------------------------------------
@@ -249,18 +137,10 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    // If persistent connection protocol and not connected, prompt
-    if (_isPersistentProtocol && !_isCurrentlyConnected) {
-      _showError('Please CONNECT to $host:$port first.');
-      return;
-    }
-
     setState(() {
       _isSending = true;
-      if (!_isPersistentProtocol) {
-        _rawResponseBytes = [];
-        _response = '';
-      }
+      _rawResponseBytes = [];
+      _response = '';
     });
 
     String? responseText;
@@ -301,14 +181,6 @@ class _HomeScreenState extends State<HomeScreen> {
           receivedBytes = result.rawBytes;
           latency = result.latencyMs;
         }
-      } else if (_protocol == 'TCP (Persistent)') {
-        await _tcpService.sendPersistent(packetData);
-      } else if (_protocol == 'WebSocket') {
-        if (_format == 'HEX') {
-          _wsService.sendBytes(packetData);
-        } else {
-          _wsService.sendText(inputData);
-        }
       }
     } catch (e) {
       errorMessage = e.toString();
@@ -318,13 +190,11 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted) return;
 
     setState(() {
-      if (!_isPersistentProtocol) {
-        _response = responseText ?? '';
-        _rawResponseBytes = receivedBytes;
-        _responseLatencyMs = latency;
-        _responseEndpoint = '$host:$port';
-        _responseTimestamp = DateTime.now();
-      }
+      _response = responseText ?? '';
+      _rawResponseBytes = receivedBytes;
+      _responseLatencyMs = latency;
+      _responseEndpoint = '$host:$port';
+      _responseTimestamp = DateTime.now();
       _isSending = false;
     });
 
@@ -386,11 +256,6 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    if (_isPersistentProtocol && !_isCurrentlyConnected) {
-      _showError('Please CONNECT to $host:$port first.');
-      return;
-    }
-
     _streamerService.startStream(
       intervalMs: _streamIntervalMs,
       payload: bytes,
@@ -412,14 +277,6 @@ class _HomeScreenState extends State<HomeScreen> {
               data: payload,
               timeout: Duration(milliseconds: _streamIntervalMs.clamp(40, 1000)),
             );
-          } else if (_protocol == 'TCP (Persistent)') {
-            await _tcpService.sendPersistent(payload);
-          } else if (_protocol == 'WebSocket') {
-            if (_format == 'HEX') {
-              _wsService.sendBytes(payload);
-            } else {
-              _wsService.sendText(String.fromCharCodes(payload));
-            }
           }
           return true;
         } catch (_) {
@@ -702,14 +559,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 items: const [
                   DropdownMenuItem(value: 'UDP', child: Text('UDP (Datagram)')),
                   DropdownMenuItem(value: 'TCP', child: Text('TCP (Single Packet)')),
-                  DropdownMenuItem(
-                    value: 'TCP (Persistent)',
-                    child: Text('TCP (Persistent Session)'),
-                  ),
-                  DropdownMenuItem(
-                    value: 'WebSocket',
-                    child: Text('WebSocket (ws://)'),
-                  ),
                 ],
                 onChanged: (value) {
                   if (value == null) return;
@@ -783,99 +632,6 @@ class _HomeScreenState extends State<HomeScreen> {
                             }
                           });
                         },
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-
-              // --------------------------------------------------
-              // Persistent Session Bar (TCP Persistent & WebSocket)
-              // --------------------------------------------------
-              if (_isPersistentProtocol) ...[
-                const SizedBox(height: 12),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF131D33),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: _isCurrentlyConnected
-                          ? Colors.greenAccent.withOpacity(0.6)
-                          : const Color(0xFF334155),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 10,
-                        height: 10,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: _isCurrentlyConnected
-                              ? Colors.greenAccent
-                              : const Color(0xFF64748B),
-                          boxShadow: _isCurrentlyConnected
-                              ? [
-                                  BoxShadow(
-                                    color: Colors.greenAccent.withOpacity(0.5),
-                                    blurRadius: 6,
-                                  ),
-                                ]
-                              : null,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          _isCurrentlyConnected
-                              ? 'Connected (${_hostController.text}:${_portController.text})'
-                              : _isTcpReconnecting
-                                  ? 'Reconnecting...'
-                              : 'Session Disconnected',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                            color: _isCurrentlyConnected
-                                ? Colors.greenAccent
-                                : _isTcpReconnecting
-                                    ? Colors.orangeAccent
-                                : const Color(0xFF94A3B8),
-                          ),
-                        ),
-                      ),
-                      ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: _isCurrentlyConnected
-                              ? Colors.redAccent.shade700
-                              : Colors.cyanAccent,
-                          foregroundColor: _isCurrentlyConnected
-                              ? Colors.white
-                              : const Color(0xFF0B132B),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 8,
-                          ),
-                        ),
-                        onPressed: _isConnecting
-                            ? null
-                            : _togglePersistentConnection,
-                        child: _isConnecting
-                            ? const SizedBox(
-                                width: 14,
-                                height: 14,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : Text(
-                                _isCurrentlyConnected
-                                    ? 'DISCONNECT'
-                                    : 'CONNECT',
-                                style: const TextStyle(fontSize: 12),
-                              ),
                       ),
                     ],
                   ),
@@ -1233,11 +989,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         )
                       : const Icon(Icons.send),
                   label: Text(
-                    _isSending
-                        ? 'TRANSMITTING...'
-                        : (_isPersistentProtocol && _isCurrentlyConnected
-                            ? 'SEND THROUGH STREAM'
-                            : 'SEND SINGLE PACKET'),
+                    _isSending ? 'TRANSMITTING...' : 'SEND SINGLE PACKET',
                   ),
                 ),
               ),
@@ -1354,14 +1106,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             : '${_hostController.text}:${_portController.text}',
                       ),
                       _targetRow('Payload Format', _format),
-                      _targetRow(
-                        'Mode',
-                        _isPersistentProtocol
-                            ? (_isCurrentlyConnected
-                                ? 'Persistent Pipe (Live)'
-                                : 'Persistent Pipe (Offline)')
-                            : 'Datagram / Request-Response',
-                      ),
+                      _targetRow('Mode', 'Datagram / Request-Response'),
                       _targetRow(
                         'Continuous Streamer',
                         isStreaming
