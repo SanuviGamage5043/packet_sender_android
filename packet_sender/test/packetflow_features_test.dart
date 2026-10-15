@@ -1,8 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:packet_sender/utils/hex_converter.dart';
-import 'package:packet_sender/utils/checksum_helper.dart';
 import 'package:packet_sender/services/scanner_service.dart';
 import 'package:packet_sender/services/tcp_service.dart';
 import 'package:packet_sender/services/websocket_service.dart';
@@ -37,58 +35,6 @@ void main() {
       expect(dump.contains('00000000'), isTrue);
       expect(dump.contains('00000010'), isTrue);
       expect(dump.contains('Hello ESP32!'), isTrue);
-    });
-  });
-
-  group('Checksum & Framing Helper Tests', () {
-    test('XOR checksum calculates correctly', () {
-      final bytes = [0x01, 0x02, 0x03]; // 1 ^ 2 ^ 3 = 0
-      expect(ChecksumHelper.calculateXor(bytes), 0x00);
-
-      final bytes2 = [0xAA, 0x55]; // 0xAA ^ 0x55 = 0xFF
-      expect(ChecksumHelper.calculateXor(bytes2), 0xFF);
-    });
-
-    test('Sum8 (Modulo 256) calculates correctly', () {
-      final bytes = [0x10, 0x20, 0x30]; // 0x60 = 96
-      expect(ChecksumHelper.calculateSum8(bytes), 0x60);
-
-      final overflow = [0xFF, 0x02]; // 255 + 2 = 257 % 256 = 1
-      expect(ChecksumHelper.calculateSum8(overflow), 0x01);
-    });
-
-    test('CRC-8 Standard and Maxim calculate correctly', () {
-      final data = [0x31, 0x32, 0x33, 0x34, 0x35]; // ASCII "12345"
-      final crcStd = ChecksumHelper.calculateCrc8Standard(data);
-      final crcMaxim = ChecksumHelper.calculateCrc8Maxim(data);
-      expect(crcStd, isNotNull);
-      expect(crcMaxim, isNotNull);
-    });
-
-    test('CRC-16 Modbus and CCITT calculate non-zero outputs', () {
-      final data = [0x01, 0x03, 0x00, 0x00, 0x00, 0x0A]; // Standard Modbus frame
-      final crcModbus = ChecksumHelper.calculateCrc16Modbus(data);
-      final crcCcitt = ChecksumHelper.calculateCrc16Ccitt(data);
-      expect(crcModbus > 0, isTrue);
-      expect(crcCcitt > 0, isTrue);
-    });
-
-    test('buildFrame packages Header, Length, Cmd, Payload, Checksum, and Footer', () {
-      final frame = ChecksumHelper.buildFrame(
-        header: [0xAA],
-        commandId: [0x01],
-        payload: [0xFF, 0x80, 0x00], // RGB
-        lengthFormat: LengthFormat.oneByte, // length = 4 (1 byte cmd + 3 bytes payload)
-        checksumType: ChecksumType.xor,
-        footer: [0x55],
-      );
-
-      // Expected structure: [AA] [04] [01] [FF] [80] [00] [XOR] [55]
-      expect(frame.first, 0xAA);
-      expect(frame[1], 0x04); // Length
-      expect(frame[2], 0x01); // Cmd
-      expect(frame.last, 0x55); // Footer
-      expect(frame.length, 8);
     });
   });
 

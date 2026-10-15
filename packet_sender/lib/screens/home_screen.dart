@@ -20,7 +20,6 @@ import 'http_screen.dart';
 import '../widgets/packet_flow_logo.dart';
 import '../widgets/response_inspector.dart';
 import '../widgets/esp32_scanner_dialog.dart';
-import '../widgets/framing_builder_dialog.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -155,6 +154,11 @@ class _HomeScreenState extends State<HomeScreen> {
   bool get _isCurrentlyConnected =>
       (_protocol == 'TCP (Persistent)' && _tcpService.isConnected) ||
       (_protocol == 'WebSocket' && _wsService.isConnected);
+
+  bool get _isTcpReconnecting =>
+      _protocol == 'TCP (Persistent)' &&
+      _tcpService.isReconnecting &&
+      !_isConnecting;
 
   // ------------------------------------------------------------
   // Toggle Connection for Persistent Protocols
@@ -426,25 +430,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // ------------------------------------------------------------
-  // Open Helpers: Framing, Scanner, Macro Runner
+  // Open Helpers: Scanner
   // ------------------------------------------------------------
-
-  Future<void> _openFramingBuilder() async {
-    final hexResult = await showDialog<String>(
-      context: context,
-      builder: (_) => FramingBuilderDialog(
-        initialPayloadHex: _format == 'HEX' ? _dataController.text : null,
-      ),
-    );
-
-    if (hexResult != null && mounted) {
-      setState(() {
-        _format = 'HEX';
-        _dataController.text = hexResult;
-      });
-      _showSuccess('Framed packet with checksum loaded!');
-    }
-  }
 
   Future<void> _openEsp32Scanner() async {
     final selectedDevice = await showDialog<DiscoveredDevice>(
@@ -501,7 +488,7 @@ class _HomeScreenState extends State<HomeScreen> {
       await _savedPacketService.savePacket(packet);
 
       if (!mounted) return;
-      _showSuccess('Packet saved to library.');
+      _showSuccess('Packet is saved.');
     } catch (e) {
       _showError('Could not save packet: $e');
     }
@@ -564,11 +551,6 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         actions: [
           IconButton(
-            tooltip: 'Framing & Checksum Helper',
-            icon: const Icon(Icons.dashboard_customize, color: Colors.cyanAccent),
-            onPressed: _openFramingBuilder,
-          ),
-          IconButton(
             tooltip: 'Scan for ESP32 devices',
             icon: const Icon(Icons.radar, color: Colors.cyanAccent),
             onPressed: _openEsp32Scanner,
@@ -618,14 +600,6 @@ class _HomeScreenState extends State<HomeScreen> {
               selected: true,
               selectedTileColor: Colors.cyanAccent.withOpacity(0.1),
               onTap: () => Navigator.pop(context),
-            ),
-            ListTile(
-              leading: const Icon(Icons.dashboard_customize, color: Colors.cyanAccent),
-              title: const Text('Framing & Checksum Helper'),
-              onTap: () {
-                Navigator.pop(context);
-                _openFramingBuilder();
-              },
             ),
             ListTile(
               leading: const Icon(Icons.radar, color: Colors.cyanAccent),
@@ -857,12 +831,16 @@ class _HomeScreenState extends State<HomeScreen> {
                         child: Text(
                           _isCurrentlyConnected
                               ? 'Connected (${_hostController.text}:${_portController.text})'
+                              : _isTcpReconnecting
+                                  ? 'Reconnecting...'
                               : 'Session Disconnected',
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.bold,
                             color: _isCurrentlyConnected
                                 ? Colors.greenAccent
+                                : _isTcpReconnecting
+                                    ? Colors.orangeAccent
                                 : const Color(0xFF94A3B8),
                           ),
                         ),
@@ -1007,38 +985,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   Row(
                     children: [
-                      // Framing Helper Shortcut
-                      InkWell(
-                        onTap: _openFramingBuilder,
-                        borderRadius: BorderRadius.circular(6),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: Colors.cyanAccent.withOpacity(0.12),
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(
-                              color: Colors.cyanAccent.withOpacity(0.3),
-                            ),
-                          ),
-                          child: const Row(
-                            children: [
-                              Icon(Icons.dashboard_customize,
-                                  size: 14, color: Colors.cyanAccent),
-                              SizedBox(width: 4),
-                              Text(
-                                'Framing Helper',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.cyanAccent,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
                       _buildFormatPill('ASCII'),
                       const SizedBox(width: 6),
                       _buildFormatPill('HEX'),
