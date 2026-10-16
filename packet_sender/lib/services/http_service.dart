@@ -12,21 +12,28 @@ class HttpResponseData {
 }
 
 class HttpService {
+  /// true = accept ANY HTTPS certificate (self-signed ESP32). Testing only.
+  static const bool allowSelfSignedCerts = true;
+
   Future<HttpResponseData> sendRequest({
     required String method,
     required String url,
     Map<String, String>? headers,
     String? body,
   }) async {
-    final client = HttpClient();
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 8)
+      ..badCertificateCallback =
+          (X509Certificate cert, String host, int port) => allowSelfSignedCerts;
 
     try {
-      final uri = Uri.parse(url);
+      final uri = Uri.parse(url.trim());
 
       final request = await client.openUrl(
         method.toUpperCase(),
         uri,
       );
+      request.persistentConnection = false;
 
       // Add headers
       if (headers != null) {
@@ -37,15 +44,13 @@ class HttpService {
 
       // Add JSON body
       if (body != null && body.trim().isNotEmpty) {
+        final bytes = utf8.encode(body);
         request.headers.contentType = ContentType.json;
-        request.headers.contentLength = utf8.encode(body).length;
-        request.write(body);
+        request.contentLength = bytes.length;
+        request.add(bytes);
       }
 
       final response = await request.close();
-
-      // Read the response using the response stream.
-      // Do not manually depend on Content-Length.
       final responseBody = await utf8.decoder.bind(response).join();
 
       return HttpResponseData(
