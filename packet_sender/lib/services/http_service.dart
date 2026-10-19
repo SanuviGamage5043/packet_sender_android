@@ -14,6 +14,8 @@ class HttpResponseData {
 }
 
 class HttpService {
+  static const Set<String> _allowedMethods = {'GET', 'POST', 'PUT', 'DELETE'};
+
   Future<HttpResponseData> sendRequest({
     required String method,
     required String url,
@@ -21,6 +23,11 @@ class HttpService {
     String? body,
     bool allowInvalidCert = false, // testing only, HTTPS
   }) async {
+    final upperMethod = method.toUpperCase();
+    if (!_allowedMethods.contains(upperMethod)) {
+      throw Exception('Unsupported method: $method');
+    }
+
     final ctx = await CertificateService().buildContext();
     final client = HttpClient(context: ctx)
       ..connectionTimeout = const Duration(seconds: 8)
@@ -30,10 +37,7 @@ class HttpService {
     try {
       final uri = Uri.parse(url.trim());
 
-      final request = await client.openUrl(
-        method.toUpperCase(),
-        uri,
-      );
+      final request = await client.openUrl(upperMethod, uri);
       request.persistentConnection = false;
 
       // Add headers
@@ -43,10 +47,14 @@ class HttpService {
         });
       }
 
-      // Add JSON body
-      if (body != null && body.trim().isNotEmpty) {
+      // Add body (not for GET)
+      if (upperMethod != 'GET' && body != null && body.trim().isNotEmpty) {
         final bytes = utf8.encode(body);
-        request.headers.contentType = ContentType.json;
+
+        // Default to JSON only if the user didn't set a Content-Type.
+        if (request.headers.contentType == null) {
+          request.headers.contentType = ContentType.json;
+        }
         request.contentLength = bytes.length;
         request.add(bytes);
       }
