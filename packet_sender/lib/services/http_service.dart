@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'certificate_service.dart';
+
 class HttpResponseData {
   final int statusCode;
   final String body;
@@ -12,19 +14,18 @@ class HttpResponseData {
 }
 
 class HttpService {
-  /// true = accept ANY HTTPS certificate (self-signed ESP32). Testing only.
-  static const bool allowSelfSignedCerts = true;
-
   Future<HttpResponseData> sendRequest({
     required String method,
     required String url,
     Map<String, String>? headers,
     String? body,
+    bool allowInvalidCert = false, // testing only, HTTPS
   }) async {
-    final client = HttpClient()
+    final ctx = await CertificateService().buildContext();
+    final client = HttpClient(context: ctx)
       ..connectionTimeout = const Duration(seconds: 8)
       ..badCertificateCallback =
-          (X509Certificate cert, String host, int port) => allowSelfSignedCerts;
+          (X509Certificate cert, String host, int port) => allowInvalidCert;
 
     try {
       final uri = Uri.parse(url.trim());
